@@ -3,6 +3,8 @@ import { sql } from "@/lib/db";
 import type { WorkflowPreset, WorkflowRunRequest } from "@/lib/types";
 import { runSupportWorkflow } from "@/lib/workflow-engine";
 
+export const maxDuration = 10;
+
 const PRESETS = new Set<WorkflowPreset>([
   "refund",
   "billing",

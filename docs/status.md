@@ -15,7 +15,7 @@ Recruiter linke tıklıyor, "Refund issue" preset'ini çalıştırıyor, trace t
 
 ## Sprint Geçmişi
 - Sprint 1 ✅
-- Sprint 2 🔄
+- Sprint 2 🔄 (deploy + prod E2E kullanıcıda)
 
 ## Sprint 1 Görevleri
 - [x] Next.js projesi kur: Neon bağlantısı, shadcn/ui setup, temel layout ve sidebar
@@ -27,14 +27,21 @@ Recruiter linke tıklıyor, "Refund issue" preset'ini çalıştırıyor, trace t
 - [x] Demo Workflow ekranı: preset butonları, input form (max 500 char), sequential loading hissi, "View Trace" CTA
 
 ## Sprint 2 Görevleri
-- [ ] Lint + Build doğrula: `npm run lint && npm run build` — prod'a çıkmadan önce temiz olmalı
-- [ ] Docs çelişkisini düzelt: docs/architecture.md'de `(dashboard)` → `(shell)` olarak güncelle
-- [ ] Neon production DB hazırla: DATABASE_URL Neon production string mi, db:setup çalıştır, 5 seed run'un DB'de olduğunu doğrula
-- [ ] Vercel deploy: Vercel projesini kur, DATABASE_URL env var ekle, GitHub integration, ilk deploy
-- [ ] Prodüksiyonda E2E test: Refund preset → trace timeline → Policy Retrieval drawer → AI Draft Generation token bilgisi — başarı kriteri tam karşılanıyor mu?
+- [x] Lint + Build doğrula: `npm run lint && npm run build` — prod'a çıkmadan önce temiz olmalı
+- [x] Docs çelişkisini düzelt: docs/architecture.md'de `(dashboard)` → `(shell)` olarak güncelle
+- [x] Neon production DB hazırla: `npm run db:setup` çalıştırıldı (4 policy doc, 5 seed run, 24 step); `node scripts/test-db.mjs` bağlantı doğrulandı
+- [ ] Vercel deploy: Vercel projesini kur, DATABASE_URL env var ekle, GitHub integration, ilk deploy *(kullanıcı)*
+- [ ] Prodüksiyonda E2E test: Refund preset → trace timeline → Policy Retrieval drawer → AI Draft Generation token bilgisi *(deploy sonrası)*
 
 ## Sprint 2 Unknowns
-- Vercel function timeout prodüksiyonda nasıl davranıyor? (workflow ~2-3 sn sync, limit 10 sn — test edilmeli)
+- Vercel function timeout: `maxDuration = 10` eklendi (`app/api/workflows/run/route.ts`); engine gerçek sleep yapmıyor — prod deploy sonrası doğrulanacak
+
+## Vercel deploy checklist (kullanıcı)
+1. GitHub repo → Vercel import
+2. `DATABASE_URL` = Neon pooled connection string (Production)
+3. İsteğe bağlı: `SEED_SECRET` — deploy sonrası `POST /api/seed` + `x-seed-secret` header
+4. Deploy; seed henüz yoksa local `npm run db:setup` (prod URL) veya `/api/seed`
+5. E2E: `/demo` → Refund preset → Run → View Trace → Policy Retrieval + AI Draft Generation drawer
 
 ## Backlog
 - Live mode AI: Gemini Flash veya GPT-4o-mini ile gerçek model entegrasyonu. Architecture slot'u mevcut. Deploy sonrası recruiter feedback'ine göre değerlendirilebilir.

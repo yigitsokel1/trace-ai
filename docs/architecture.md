@@ -27,14 +27,18 @@ app/
 │   ├── workflows/
 │   │   └── run/route.ts       # Workflow engine — 5-step pipeline, DB write'ları
 │   ├── runs/
-│   │   └── route.ts           # Run listesi ve run detail
+│   │   ├── route.ts           # Run listesi
+│   │   └── [id]/route.ts      # Run detail
 │   └── seed/
 │       └── route.ts           # Seed script endpoint
-├── (dashboard)/
-│   ├── page.tsx               # Dashboard — runs listesi + stats kartları
-│   └── runs/[id]/page.tsx     # Run detail + trace timeline
-└── demo/
-    └── page.tsx               # Demo workflow ekranı — preset butonlar + input form
+└── (shell)/
+    ├── layout.tsx             # Sidebar shell
+    ├── page.tsx               # Dashboard — runs listesi + stats kartları
+    ├── demo/
+    │   └── page.tsx           # Demo workflow ekranı — preset butonlar + input form
+    └── runs/
+        └── [id]/
+            └── page.tsx       # Run detail + trace timeline
 
 lib/
 ├── db.ts                      # Neon client
