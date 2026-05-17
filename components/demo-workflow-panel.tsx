@@ -8,9 +8,11 @@ import {
   Loader2Icon,
   PlayIcon,
   RotateCcwIcon,
+  XCircleIcon,
 } from "lucide-react";
 
 import { RunStatusBadge } from "@/components/run-status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,35 +23,62 @@ import {
 } from "@/components/ui/card";
 import { DEMO_PRESETS, PIPELINE_STEP_NAMES } from "@/lib/demo-presets";
 import { formatLatency } from "@/lib/format";
-import type { WorkflowPreset, WorkflowRunResponse } from "@/lib/types";
+import type {
+  WorkflowPreset,
+  WorkflowProgressEvent,
+  WorkflowRunResponse,
+} from "@/lib/types";
+import { runWorkflowStream } from "@/lib/workflow-stream";
 import { cn } from "@/lib/utils";
 
 const MAX_INPUT_LENGTH = 500;
-const STEP_ANIMATION_MS = 350;
 
 type UiStatus = "idle" | "running" | "success" | "error";
-type StepUiState = "pending" | "active" | "done";
+type StepUiState = "pending" | "active" | "done" | "failed";
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+type StepProgressMeta = {
+  state: StepUiState;
+  durationMs: number | null;
+};
+
+function initialStepProgress(): StepProgressMeta[] {
+  return PIPELINE_STEP_NAMES.map(() => ({
+    state: "pending",
+    durationMs: null,
+  }));
 }
 
-async function runStepAnimation(
-  setStepStates: React.Dispatch<React.SetStateAction<StepUiState[]>>
-) {
-  for (let i = 0; i < PIPELINE_STEP_NAMES.length; i++) {
-    setStepStates((prev) =>
-      prev.map((s, idx) => {
-        if (idx < i) return "done";
-        if (idx === i) return "active";
-        return "pending";
-      })
-    );
-    await sleep(STEP_ANIMATION_MS);
-    setStepStates((prev) =>
-      prev.map((s, idx) => (idx <= i ? "done" : s))
-    );
+function applyProgressEvent(
+  prev: StepProgressMeta[],
+  event: WorkflowProgressEvent
+): StepProgressMeta[] {
+  if (event.type === "step_start") {
+    const index = event.step_order - 1;
+    return prev.map((step, idx) => {
+      if (idx < index) {
+        return step.state === "pending"
+          ? { ...step, state: "done" }
+          : step;
+      }
+      if (idx === index) {
+        return { ...step, state: "active" };
+      }
+      return { ...step, state: "pending", durationMs: null };
+    });
   }
+
+  if (event.type === "step_complete") {
+    const index = event.step_order - 1;
+    return prev.map((step, idx) => {
+      if (idx !== index) return step;
+      return {
+        state: event.status === "failed" ? "failed" : "done",
+        durationMs: event.duration_ms,
+      };
+    });
+  }
+
+  return prev;
 }
 
 export function DemoWorkflowPanel() {
@@ -58,8 +87,8 @@ export function DemoWorkflowPanel() {
     "refund"
   );
   const [uiStatus, setUiStatus] = useState<UiStatus>("idle");
-  const [stepStates, setStepStates] = useState<StepUiState[]>(
-    PIPELINE_STEP_NAMES.map(() => "pending")
+  const [stepProgress, setStepProgress] = useState<StepProgressMeta[]>(
+    initialStepProgress
   );
   const [result, setResult] = useState<WorkflowRunResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -67,12 +96,10 @@ export function DemoWorkflowPanel() {
   const charCount = input.length;
   const overLimit = charCount > MAX_INPUT_LENGTH;
   const canRun =
-    input.trim().length > 0 &&
-    !overLimit &&
-    uiStatus !== "running";
+    input.trim().length > 0 && !overLimit && uiStatus !== "running";
 
   const resetSteps = useCallback(() => {
-    setStepStates(PIPELINE_STEP_NAMES.map(() => "pending"));
+    setStepProgress(initialStepProgress());
   }, []);
 
   const handlePreset = (preset: (typeof DEMO_PRESETS)[number]) => {
@@ -93,28 +120,20 @@ export function DemoWorkflowPanel() {
     setErrorMessage(null);
     resetSteps();
 
-    const animation = runStepAnimation(setStepStates);
-
-    const fetchRun = fetch("/api/workflows/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      const runResult = await runWorkflowStream({
         input: input.trim(),
         preset: selectedPreset ?? undefined,
-      }),
-    }).then(async (res) => {
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "Workflow run failed");
-      }
-      return data as WorkflowRunResponse;
-    });
+        onEvent: (event) => {
+          setStepProgress((prev) => applyProgressEvent(prev, event));
+        },
+      });
 
-    try {
-      const [, runResult] = await Promise.all([animation, fetchRun]);
-      setStepStates(PIPELINE_STEP_NAMES.map(() => "done"));
       setResult(runResult);
-      setUiStatus("success");
+      setUiStatus(runResult.status === "failed" ? "error" : "success");
+      if (runResult.status === "failed") {
+        setErrorMessage("Workflow stopped at a failed step. Open the trace for details.");
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Workflow run failed";
       setErrorMessage(message);
@@ -218,7 +237,7 @@ export function DemoWorkflowPanel() {
             <CardTitle>Pipeline progress</CardTitle>
             <CardDescription>
               {uiStatus === "running"
-                ? "Executing support reply workflow steps…"
+                ? "Steps update as the server executes each pipeline stage."
                 : uiStatus === "success"
                   ? "Workflow completed."
                   : "Workflow could not complete."}
@@ -227,31 +246,44 @@ export function DemoWorkflowPanel() {
           <CardContent className="space-y-4">
             <ul className="space-y-2">
               {PIPELINE_STEP_NAMES.map((name, index) => {
-                const state = stepStates[index] ?? "pending";
+                const { state, durationMs } = stepProgress[index] ?? {
+                  state: "pending",
+                  durationMs: null,
+                };
                 return (
                   <li
                     key={name}
                     className={cn(
                       "flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-colors",
                       state === "active" && "border-border bg-muted/60",
-                      state === "done" && "opacity-90"
+                      state === "done" && "opacity-90",
+                      state === "failed" && "border-destructive/30 bg-destructive/5"
                     )}
                   >
                     {state === "done" ? (
                       <CheckCircle2Icon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    ) : state === "failed" ? (
+                      <XCircleIcon className="size-4 shrink-0 text-destructive" />
                     ) : state === "active" ? (
                       <Loader2Icon className="size-4 shrink-0 animate-spin text-primary" />
                     ) : (
                       <CircleDashedIcon className="size-4 shrink-0 text-muted-foreground/50" />
                     )}
-                    <span
-                      className={cn(
-                        "text-sm",
-                        state === "pending" && "text-muted-foreground"
-                      )}
-                    >
-                      {name}
-                    </span>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span
+                        className={cn(
+                          "text-sm",
+                          state === "pending" && "text-muted-foreground"
+                        )}
+                      >
+                        {name}
+                      </span>
+                      {durationMs != null ? (
+                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                          {formatLatency(durationMs)}
+                        </span>
+                      ) : null}
+                    </div>
                   </li>
                 );
               })}
@@ -261,6 +293,9 @@ export function DemoWorkflowPanel() {
               <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <RunStatusBadge status={result.status} />
+                  <Badge variant="outline" className="capitalize">
+                    {result.mode}
+                  </Badge>
                   <span className="text-sm text-muted-foreground">
                     {formatLatency(result.total_duration_ms)} · {result.step_count}{" "}
                     steps
@@ -275,13 +310,27 @@ export function DemoWorkflowPanel() {
               </div>
             ) : null}
 
-            {uiStatus === "error" && errorMessage ? (
+            {uiStatus === "error" ? (
               <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-destructive">{errorMessage}</p>
-                <Button type="button" variant="outline" size="sm" onClick={handleRetry}>
-                  <RotateCcwIcon />
-                  Retry
-                </Button>
+                <p className="text-sm text-destructive">
+                  {errorMessage ?? "Workflow run failed"}
+                </p>
+                <div className="flex gap-2">
+                  {result ? (
+                    <Button
+                      nativeButton={false}
+                      render={<Link href={`/runs/${result.run_id}`} />}
+                      variant="outline"
+                      size="sm"
+                    >
+                      View Trace
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="outline" size="sm" onClick={handleRetry}>
+                    <RotateCcwIcon />
+                    Retry
+                  </Button>
+                </div>
               </div>
             ) : null}
           </CardContent>

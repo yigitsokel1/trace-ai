@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import type { WorkflowPreset, WorkflowRunRequest } from "@/lib/types";
+import { getClientIp, isRateLimitExceeded } from "@/lib/rate-limit";
 import { runSupportWorkflow } from "@/lib/workflow-engine";
 
 export const maxDuration = 10;
@@ -58,8 +59,51 @@ export async function POST(request: Request) {
     );
   }
 
+  const clientIp = getClientIp(request);
+  const rateLimited = await isRateLimitExceeded(sql, clientIp);
+  const runOptions = { clientIp, rateLimited };
+
+  const streamProgress =
+    new URL(request.url).searchParams.get("stream") === "1";
+
+  if (streamProgress) {
+    const encoder = new TextEncoder();
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        const enqueue = (event: unknown) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        };
+
+        try {
+          await runSupportWorkflow(sql, input, parsed.preset, enqueue, runOptions);
+        } catch (e) {
+          const message =
+            e instanceof Error ? e.message : "Workflow run failed";
+          enqueue({ type: "error", message });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readable, {
+      status: 201,
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
+  }
+
   try {
-    const result = await runSupportWorkflow(sql, input, parsed.preset);
+    const result = await runSupportWorkflow(
+      sql,
+      input,
+      parsed.preset,
+      undefined,
+      runOptions
+    );
     return NextResponse.json(result, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Workflow run failed";

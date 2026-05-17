@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   total_duration_ms INTEGER NOT NULL,
   step_count INTEGER NOT NULL DEFAULT 5,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  mode TEXT NOT NULL DEFAULT 'demo' CHECK (mode IN ('demo', 'live'))
+  mode TEXT NOT NULL DEFAULT 'demo' CHECK (mode IN ('demo', 'live')),
+  client_ip TEXT
 );
 
 CREATE TABLE IF NOT EXISTS workflow_steps (
@@ -31,3 +32,8 @@ CREATE TABLE IF NOT EXISTS workflow_steps (
 
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_run_id ON workflow_steps (run_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at ON workflow_runs (created_at DESC);
+
+ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS client_ip TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_client_ip_day
+  ON workflow_runs (client_ip, created_at DESC);

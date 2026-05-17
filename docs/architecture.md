@@ -6,11 +6,31 @@ AI workflow execution'larını trace eden, step-by-step inspect edilebilen obser
 ## Ne YAPMIYOR
 - Auth veya multi-user sistemi değil
 - Gerçek distributed tracing platformu değil
-- Live/realtime streaming dashboard değil
+- LLM token streaming veya SSE tabanlı canlı dashboard (step NDJSON progress hariç — aşağıya bak)
 - Multi-workflow veya workflow builder değil
 - Vector search veya embedding pipeline değil
 - Cost analytics veya aggregated reporting değil
 - Enterprise monitoring tool değil
+
+## Sequential progress vs streaming
+
+Demo UI, workflow tamamlanırken **step sınırlarında** ilerleme göstermek için `POST /api/workflows/run?stream=1` kullanır. Yanıt `application/x-ndjson`; her satır bir JSON event:
+
+- `step_start` — step başladı
+- `step_complete` — step bitti (status, duration_ms)
+- `run_complete` — tüm run sonucu
+- `error` — hata mesajı
+
+Bu, pipeline'ın **sıralı step bildirimi**dir. Sunucu tüm step'leri `workflow-engine` içinde sırayla çalıştırır ve her step'i DB'ye yazar ([docs/workflow.md](workflow.md) kuralları). Client (`lib/workflow-stream.ts`) event'leri okuyup demo panelinde gösterir; API: `app/api/workflows/run/route.ts`.
+
+**Değildir:**
+
+- LLM output token streaming (ChatGPT-style akış)
+- SSE veya WebSocket tabanlı canlı dashboard
+- Gerçek zamanlı distributed trace ingest
+- Step'lerin sunucuda paralel/streaming olarak üretilmesi
+
+Gelecek iş: backlog'daki "Streaming/SSE" — mimari değişiklik gerektirir; mevcut NDJSON step progress ile karıştırılmamalı.
 
 ## Stack
 - Backend: Next.js Route Handlers (app/api/) — workflow engine, DB write'ları ve response dönen işlemler
@@ -44,6 +64,7 @@ lib/
 ├── db.ts                      # Neon client
 ├── workflow-engine.ts         # Deterministic demo engine + step orchestration
 ├── retrieval.ts               # Keyword-based policy doc retrieval + scoring
+├── rate-limit.ts              # IP extraction + daily run cap
 └── seed.ts                    # DB seed — 5 run + policy documents
 
 seed_docs/
@@ -55,10 +76,12 @@ seed_docs/
 
 ## Data Model
 
-**workflow_runs**: run_id, workflow_type, status, total_duration_ms, step_count, created_at, mode (demo/live)
+**workflow_runs**: run_id, workflow_type, status, total_duration_ms, step_count, created_at, mode (demo/live), client_ip (nullable — user demo run'ları; seed NULL)
+
+**Rate limit**: IP başına günlük 10 run (`RATE_LIMIT_DAILY`, UTC gün). `client_ip` dolu run'lar sayılır; limit aşılınca sessiz demo fallback (`rate_limit_fallback` metadata, HTTP 201). `RATE_LIMIT_ENABLED=false` ile kapatılır; bilinmeyen IP limit dışı.
 
 **workflow_steps**: step_id, run_id, step_name, status, duration_ms, input_preview, output_preview, metadata (JSONB), error_message, step_order
-- metadata içinde: model_info, token_estimate, retrieved_docs, retrieval_scores, validation_checks
+- metadata içinde: model_info, token_estimate, retrieved_docs, retrieval_scores, matched_keywords, snippets, validation_checks
 
 **policy_documents**: doc_id, filename, content, tags
 

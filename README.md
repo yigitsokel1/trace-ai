@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TraceAI
 
-## Getting Started
+Observability dashboard for AI workflow runs — inspect each step, latency, policy retrieval, and draft generation in a single trace. Makes the "AI black box" visible for a support-reply pipeline demo.
 
-First, run the development server:
+## Demo flow
+
+1. Open **Demo Workflow** and pick a preset (e.g. **Refund issue**).
+2. Run the pipeline and watch step-by-step progress.
+3. Open **View Trace** on the run detail page.
+4. Click **Policy Retrieval** to see retrieved documents and scores.
+5. Click **AI Draft Generation** to see latency, token estimates, and output preview.
+
+Production is deployed on Vercel with Neon; see [docs/status.md](docs/status.md) for launch checklist.
+
+## Stack
+
+Next.js (App Router) · TypeScript · Tailwind · shadcn/ui · Neon PostgreSQL · optional Gemini Flash for live AI draft mode
+
+## Requirements
+
+- Node.js 20+
+- [Neon](https://neon.tech) database (`DATABASE_URL`)
+- Optional: `GEMINI_API_KEY` for live AI Draft Generation (see [Demo vs live mode](#demo-vs-live-mode))
+
+## Setup
 
 ```bash
+npm install
+cp .env.example .env   # fill in DATABASE_URL
+npm run db:setup
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | Neon PostgreSQL connection string |
+| `GEMINI_API_KEY` | No | Enables **live** mode for AI Draft Generation |
+| `GEMINI_MODEL` | No | Default `gemini-2.5-flash` if unset (see `.env.example`) |
 
-## Learn More
+## Demo vs live mode
 
-To learn more about Next.js, take a look at the following resources:
+- **Demo** (no `GEMINI_API_KEY`): deterministic engine for all steps; AI draft uses a built-in template.
+- **Live** (`GEMINI_API_KEY` set): AI Draft Generation calls Gemini Flash; run `mode` is stored as `live`.
+- If Gemini returns quota/rate-limit errors, the engine silently falls back to the demo draft (run still succeeds).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint |
+| `npm run db:migrate` | Apply `db/schema.sql` to Neon |
+| `npm run db:seed` | Seed policy docs and sample runs |
+| `npm run db:setup` | `db:migrate` + `db:seed` |
 
-## Deploy on Vercel
+## Progress streaming (FAQ)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The demo page calls `POST /api/workflows/run?stream=1` and reads **newline-delimited JSON** events (`step_start`, `step_complete`, `run_complete`). That gives a sequential step-by-step UI while the server runs the full pipeline.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This is **not** LLM token streaming, Server-Sent Events (SSE), or a realtime observability ingest path. For the full distinction, see [docs/architecture.md — Sequential progress vs streaming](docs/architecture.md#sequential-progress-vs-streaming).
+
+## Deploy
+
+Deploy to [Vercel](https://vercel.com) and set `DATABASE_URL` (and optionally `GEMINI_API_KEY`) in project environment variables. Run `npm run lint` and `npm run build` before shipping.
+
+## Project docs
+
+- [docs/status.md](docs/status.md) — sprint status and launch checklist
+- [docs/architecture.md](docs/architecture.md) — layers, data model, scope
+- [docs/workflow.md](docs/workflow.md) — session rules and engine conventions
+
+## Out of scope
+
+- Authentication / multi-user
+- Vector search or embeddings
+- Multi-workflow UI or workflow builder
+- Enterprise monitoring or cost analytics

@@ -6,7 +6,8 @@ type Sql = NeonQueryFunction<false, false>;
 export async function insertRunRunning(
   sql: Sql,
   runId: string,
-  mode: RunMode = "demo"
+  mode: RunMode = "demo",
+  clientIp: string | null = null
 ) {
   await sql`
     INSERT INTO workflow_runs (
@@ -15,7 +16,8 @@ export async function insertRunRunning(
       status,
       total_duration_ms,
       step_count,
-      mode
+      mode,
+      client_ip
     )
     VALUES (
       ${runId},
@@ -23,7 +25,8 @@ export async function insertRunRunning(
       ${"running"},
       ${0},
       ${0},
-      ${mode}
+      ${mode},
+      ${clientIp}
     )
   `;
 }

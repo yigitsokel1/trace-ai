@@ -1,12 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { NeonQueryFunction } from "@neondatabase/serverless";
 import type {
+  RunMode,
   RunStatus,
   StepMetadata,
   StepName,
   WorkflowPreset,
+  WorkflowProgressEvent,
   WorkflowRunResponse,
 } from "./types";
+import { buildAiDraftInputPreview } from "./ai-draft-preview";
+import {
+  formatGeminiErrorMessage,
+  generateSupportDraft,
+  isGeminiLiveEnabled,
+  isGeminiQuotaOrRateLimitError,
+} from "./gemini-draft";
+import { getPolicyContentsByIds } from "./policy-content";
 import { retrievePolicyDocuments } from "./retrieval";
 import {
   insertRunRunning,
@@ -31,6 +41,12 @@ type PipelineContext = {
   retrievedDocs: string[];
   retrievalScores: Record<string, number>;
   draft: string;
+  rateLimited?: boolean;
+};
+
+export type RunSupportWorkflowOptions = {
+  clientIp?: string | null;
+  rateLimited?: boolean;
 };
 
 function randomBetween(min: number, max: number): number {
@@ -133,7 +149,8 @@ type StepResult = {
 async function executeStep(
   sql: Sql,
   stepName: StepName,
-  ctx: PipelineContext
+  ctx: PipelineContext,
+  mode: RunMode
 ): Promise<StepResult> {
   switch (stepName) {
     case "Input Validation": {
@@ -148,27 +165,87 @@ async function executeStep(
       };
     }
     case "Policy Retrieval": {
-      const { retrieved_docs, retrieval_scores } = await retrievePolicyDocuments(
-        sql,
-        ctx.input,
-        { preset: ctx.preset }
-      );
-      ctx.retrievedDocs = retrieved_docs;
-      ctx.retrievalScores = retrieval_scores;
+      const retrieval = await retrievePolicyDocuments(sql, ctx.input, {
+        preset: ctx.preset,
+      });
+      ctx.retrievedDocs = retrieval.retrieved_docs;
+      ctx.retrievalScores = retrieval.retrieval_scores;
       return {
         status: "success",
         durationMs: randomBetween(120, 250),
         inputPreview: ctx.input.slice(0, 80),
-        outputPreview: `Retrieved ${retrieved_docs.length} documents`,
+        outputPreview: `Retrieved ${retrieval.retrieved_docs.length} documents`,
         metadata: {
-          retrieved_docs,
-          retrieval_scores,
+          retrieved_docs: retrieval.retrieved_docs,
+          retrieval_scores: retrieval.retrieval_scores,
+          matched_keywords: retrieval.matched_keywords,
+          snippets: retrieval.snippets,
         },
         errorMessage: null,
         stopPipeline: false,
       };
     }
     case "AI Draft Generation": {
+      const inputPreview = buildAiDraftInputPreview(
+        ctx.retrievedDocs,
+        ctx.input
+      );
+
+      if (mode === "live") {
+        const startedAt = Date.now();
+        try {
+          const excerpts = await getPolicyContentsByIds(sql, ctx.retrievedDocs);
+          const result = await generateSupportDraft({
+            input: ctx.input,
+            excerpts,
+            preset: ctx.preset,
+          });
+          ctx.draft = result.draft;
+          return {
+            status: "success",
+            durationMs: result.durationMs,
+            inputPreview,
+            outputPreview: ctx.draft.slice(0, 160),
+            metadata: {
+              model_info: result.modelInfo,
+              token_estimate: result.tokenEstimate,
+            },
+            errorMessage: null,
+            stopPipeline: false,
+          };
+        } catch (e) {
+          if (isGeminiQuotaOrRateLimitError(e)) {
+            ctx.draft = buildDraft(ctx.input, ctx.preset, ctx.retrievedDocs);
+            return {
+              status: "success",
+              durationMs: Date.now() - startedAt,
+              inputPreview,
+              outputPreview: ctx.draft.slice(0, 160),
+              metadata: {
+                model_info: {
+                  model: "demo-engine-v1",
+                  provider: "deterministic",
+                },
+                token_estimate: estimateTokens(ctx.input, ctx.draft),
+                validation_checks: ["gemini_quota_fallback"],
+              },
+              errorMessage: null,
+              stopPipeline: false,
+            };
+          }
+
+          return {
+            status: "failed",
+            durationMs: Date.now() - startedAt,
+            inputPreview,
+            outputPreview: null,
+            metadata: {},
+            errorMessage: formatGeminiErrorMessage(e),
+            stopPipeline: true,
+          };
+        }
+      }
+
       const lower = ctx.input.toLowerCase();
       const aggressiveRefund =
         lower.includes("six months") &&
@@ -180,11 +257,14 @@ async function executeStep(
       return {
         status: "success",
         durationMs: randomBetween(900, 1600),
-        inputPreview: "Context: policy excerpts + user message",
+        inputPreview,
         outputPreview: ctx.draft.slice(0, 160),
         metadata: {
           model_info: { model: "demo-engine-v1", provider: "deterministic" },
           token_estimate: estimateTokens(ctx.input, ctx.draft),
+          ...(ctx.rateLimited
+            ? { validation_checks: ["rate_limit_fallback"] as string[] }
+            : {}),
         },
         errorMessage: null,
         stopPipeline: false,
@@ -227,8 +307,11 @@ async function executeStep(
 export async function runSupportWorkflow(
   sql: Sql,
   input: string,
-  preset?: WorkflowPreset
+  preset?: WorkflowPreset,
+  onProgress?: (event: WorkflowProgressEvent) => void,
+  options: RunSupportWorkflowOptions = {}
 ): Promise<WorkflowRunResponse> {
+  const rateLimited = options.rateLimited ?? false;
   const runId = `run_${randomUUID()}`;
   const ctx: PipelineContext = {
     input,
@@ -236,9 +319,15 @@ export async function runSupportWorkflow(
     retrievedDocs: [],
     retrievalScores: {},
     draft: "",
+    rateLimited,
   };
 
-  await insertRunRunning(sql, runId);
+  const mode: RunMode = rateLimited
+    ? "demo"
+    : isGeminiLiveEnabled()
+      ? "live"
+      : "demo";
+  await insertRunRunning(sql, runId, mode, options.clientIp ?? null);
 
   let totalDurationMs = 0;
   let completedSteps = 0;
@@ -248,8 +337,14 @@ export async function runSupportWorkflow(
     const stepName = STEP_PIPELINE[i]!;
     const stepOrder = i + 1;
 
+    onProgress?.({
+      type: "step_start",
+      step_order: stepOrder,
+      step_name: stepName,
+    });
+
     const stepId = await insertStepRunning(sql, runId, stepOrder, stepName);
-    const result = await executeStep(sql, stepName, ctx);
+    const result = await executeStep(sql, stepName, ctx, mode);
 
     await updateStepFinal(sql, {
       stepId,
@@ -259,6 +354,14 @@ export async function runSupportWorkflow(
       outputPreview: result.outputPreview,
       metadata: result.metadata,
       errorMessage: result.errorMessage,
+    });
+
+    onProgress?.({
+      type: "step_complete",
+      step_order: stepOrder,
+      step_name: stepName,
+      status: result.status,
+      duration_ms: result.durationMs,
     });
 
     totalDurationMs += result.durationMs;
@@ -272,10 +375,15 @@ export async function runSupportWorkflow(
 
   await updateRunFinal(sql, runId, runStatus, totalDurationMs, completedSteps);
 
-  return {
+  const response: WorkflowRunResponse = {
     run_id: runId,
     status: runStatus,
     total_duration_ms: totalDurationMs,
     step_count: completedSteps,
+    mode,
   };
+
+  onProgress?.({ type: "run_complete", run: response });
+
+  return response;
 }

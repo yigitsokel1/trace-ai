@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NeonQueryFunction } from "@neondatabase/serverless";
+import { buildAiDraftInputPreview } from "./ai-draft-preview";
+import { pickRetrievalEnrichment, retrievePolicyDocuments } from "./retrieval";
 import type { RunStatus, StepMetadata } from "./types";
 
 const SEED_DOC_DEFS = [
@@ -33,6 +35,12 @@ type StepName =
   | "Response Validation"
   | "Finalize Response";
 
+type SuccessDurations = [number, number, number, number, number];
+type FailedDurations = [number, number, number, number];
+
+const DEFAULT_SUCCESS_DURATIONS: SuccessDurations = [95, 185, 1240, 110, 75];
+const DEFAULT_FAILED_DURATIONS: FailedDurations = [92, 210, 1380, 98];
+
 type SeedStep = {
   step_id: string;
   step_name: StepName;
@@ -52,8 +60,116 @@ type SeedRun = {
   steps: SeedStep[];
 };
 
+type SeedRunDef = {
+  run_id: string;
+  status: "success" | "failed";
+  daysAgo: number;
+  hoursAgo?: number;
+  input: string;
+  retrieved_docs: string[];
+  retrieval_scores: Record<string, number>;
+  durations: SuccessDurations | FailedDurations;
+};
+
+const SEED_RUN_DEFS: SeedRunDef[] = [
+  {
+    run_id: "run_seed_refund",
+    status: "success",
+    daysAgo: 0,
+    hoursAgo: 6,
+    input:
+      "I was charged twice for my Pro subscription last month and need a refund. Invoice #INV-20481.",
+    retrieved_docs: ["refund_policy", "billing_faq"],
+    retrieval_scores: { refund_policy: 0.92, billing_faq: 0.71 },
+    durations: [88, 165, 1180, 105, 72],
+  },
+  {
+    run_id: "run_seed_upgrade",
+    status: "success",
+    daysAgo: 1,
+    hoursAgo: 4,
+    input:
+      "We want to upgrade from Pro to Team before our renewal next week. What changes on billing?",
+    retrieved_docs: ["subscription_terms", "billing_faq"],
+    retrieval_scores: { subscription_terms: 0.87, billing_faq: 0.62 },
+    durations: [99, 205, 1580, 92, 74],
+  },
+  {
+    run_id: "run_seed_billing",
+    status: "success",
+    daysAgo: 1,
+    hoursAgo: 14,
+    input:
+      "Where can I download my invoice for March? I need it for expense reporting.",
+    retrieved_docs: ["billing_faq"],
+    retrieval_scores: { billing_faq: 0.88 },
+    durations: [102, 220, 1420, 95, 68],
+  },
+  {
+    run_id: "run_seed_password",
+    status: "success",
+    daysAgo: 3,
+    hoursAgo: 8,
+    input:
+      "I forgot my password and no longer have access to my authenticator app. How do I reset access?",
+    retrieved_docs: ["login_help"],
+    retrieval_scores: { login_help: 0.91 },
+    durations: [85, 132, 890, 125, 65],
+  },
+  {
+    run_id: "run_seed_login",
+    status: "success",
+    daysAgo: 4,
+    hoursAgo: 6,
+    input:
+      "I cannot sign in after enabling 2FA. My backup codes do not work.",
+    retrieved_docs: ["login_help"],
+    retrieval_scores: { login_help: 0.94 },
+    durations: [76, 140, 980, 118, 80],
+  },
+  {
+    run_id: "run_seed_invoice",
+    status: "success",
+    daysAgo: 5,
+    hoursAgo: 10,
+    input:
+      "Please send me a PDF of all Q4 invoices for our workspace. Finance needs them by Friday.",
+    retrieved_docs: ["billing_faq"],
+    retrieval_scores: { billing_faq: 0.85 },
+    durations: [94, 178, 1050, 112, 70],
+  },
+  {
+    run_id: "run_seed_subscription",
+    status: "success",
+    daysAgo: 5,
+    hoursAgo: 20,
+    input:
+      "Please cancel my Team plan at the end of the billing cycle. We are downgrading to Pro.",
+    retrieved_docs: ["subscription_terms", "billing_faq"],
+    retrieval_scores: { subscription_terms: 0.9, billing_faq: 0.55 },
+    durations: [110, 195, 1310, 88, 77],
+  },
+  {
+    run_id: "run_seed_failed",
+    status: "failed",
+    daysAgo: 7,
+    hoursAgo: 2,
+    input:
+      "Your refund policy is unclear. I want money back today for a charge from six months ago.",
+    retrieved_docs: ["refund_policy"],
+    retrieval_scores: { refund_policy: 0.67 },
+    durations: [98, 245, 1510, 102],
+  },
+];
+
 function readPolicyDoc(filename: string): string {
   return readFileSync(join(process.cwd(), "seed_docs", filename), "utf8");
+}
+
+function seedCreatedAt(now: number, daysAgo: number, hoursAgo = 0): Date {
+  return new Date(
+    now - daysAgo * 24 * 60 * 60 * 1000 - hoursAgo * 60 * 60 * 1000
+  );
 }
 
 export async function clearSeedData(sql: NeonQueryFunction<false, false>) {
@@ -74,12 +190,31 @@ function step(
   };
 }
 
+function buildPolicyRetrievalMetadata(
+  retrieved_docs: string[],
+  retrieval_scores: Record<string, number>,
+  enrichment?: { matched_keywords?: Record<string, string[]>; snippets?: Record<string, string> }
+): StepMetadata {
+  return {
+    retrieved_docs,
+    retrieval_scores,
+    matched_keywords: enrichment?.matched_keywords,
+    snippets: enrichment?.snippets,
+  };
+}
+
 function buildSuccessSteps(
   runId: string,
   inputPreview: string,
   retrieved_docs: string[],
-  retrieval_scores: Record<string, number>
+  retrieval_scores: Record<string, number>,
+  durations: SuccessDurations = DEFAULT_SUCCESS_DURATIONS,
+  retrievalEnrichment?: {
+    matched_keywords?: Record<string, string[]>;
+    snippets?: Record<string, string>;
+  }
 ): SeedStep[] {
+  const [d1, d2, d3, d4, d5] = durations;
   const draft =
     "Thank you for reaching out. Based on our policy documents, we can help with your request. I've outlined the next steps and timeline below.";
 
@@ -87,7 +222,7 @@ function buildSuccessSteps(
     step(runId, 1, {
       step_name: "Input Validation",
       status: "success",
-      duration_ms: 95,
+      duration_ms: d1,
       input_preview: inputPreview.slice(0, 120),
       output_preview: "Input valid — 1 issue category detected",
       metadata: { validation_checks: ["length_ok", "category_detected"] },
@@ -96,17 +231,21 @@ function buildSuccessSteps(
     step(runId, 2, {
       step_name: "Policy Retrieval",
       status: "success",
-      duration_ms: 185,
+      duration_ms: d2,
       input_preview: inputPreview.slice(0, 80),
       output_preview: `Retrieved ${retrieved_docs.length} documents`,
-      metadata: { retrieved_docs, retrieval_scores },
+      metadata: buildPolicyRetrievalMetadata(
+        retrieved_docs,
+        retrieval_scores,
+        retrievalEnrichment
+      ),
       error_message: null,
     }),
     step(runId, 3, {
       step_name: "AI Draft Generation",
       status: "success",
-      duration_ms: 1240,
-      input_preview: "Context: policy excerpts + user message",
+      duration_ms: d3,
+      input_preview: buildAiDraftInputPreview(retrieved_docs, inputPreview),
       output_preview: draft.slice(0, 160),
       metadata: {
         model_info: { model: "demo-engine-v1", provider: "deterministic" },
@@ -117,7 +256,7 @@ function buildSuccessSteps(
     step(runId, 4, {
       step_name: "Response Validation",
       status: "success",
-      duration_ms: 110,
+      duration_ms: d4,
       input_preview: draft.slice(0, 100),
       output_preview: "Draft passed safety and tone checks",
       metadata: {
@@ -128,7 +267,7 @@ function buildSuccessSteps(
     step(runId, 5, {
       step_name: "Finalize Response",
       status: "success",
-      duration_ms: 75,
+      duration_ms: d5,
       input_preview: null,
       output_preview: "Response queued for support review",
       metadata: { validation_checks: ["queued"] },
@@ -141,8 +280,14 @@ function buildFailedSteps(
   runId: string,
   inputPreview: string,
   retrieved_docs: string[],
-  retrieval_scores: Record<string, number>
+  retrieval_scores: Record<string, number>,
+  durations: FailedDurations = DEFAULT_FAILED_DURATIONS,
+  retrievalEnrichment?: {
+    matched_keywords?: Record<string, string[]>;
+    snippets?: Record<string, string>;
+  }
 ): SeedStep[] {
+  const [d1, d2, d3, d4] = durations;
   const draft =
     "We understand you want a refund. Our team will review your account shortly.";
 
@@ -150,7 +295,7 @@ function buildFailedSteps(
     step(runId, 1, {
       step_name: "Input Validation",
       status: "success",
-      duration_ms: 92,
+      duration_ms: d1,
       input_preview: inputPreview.slice(0, 120),
       output_preview: "Input valid — refund category detected",
       metadata: { validation_checks: ["length_ok", "category_detected"] },
@@ -159,17 +304,21 @@ function buildFailedSteps(
     step(runId, 2, {
       step_name: "Policy Retrieval",
       status: "success",
-      duration_ms: 210,
+      duration_ms: d2,
       input_preview: inputPreview.slice(0, 80),
       output_preview: "Retrieved 1 document",
-      metadata: { retrieved_docs, retrieval_scores },
+      metadata: buildPolicyRetrievalMetadata(
+        retrieved_docs,
+        retrieval_scores,
+        retrievalEnrichment
+      ),
       error_message: null,
     }),
     step(runId, 3, {
       step_name: "AI Draft Generation",
       status: "success",
-      duration_ms: 1380,
-      input_preview: "Context: policy excerpts + user message",
+      duration_ms: d3,
+      input_preview: buildAiDraftInputPreview(retrieved_docs, inputPreview),
       output_preview: draft.slice(0, 160),
       metadata: {
         model_info: { model: "demo-engine-v1", provider: "deterministic" },
@@ -180,7 +329,7 @@ function buildFailedSteps(
     step(runId, 4, {
       step_name: "Response Validation",
       status: "failed",
-      duration_ms: 98,
+      duration_ms: d4,
       input_preview: draft.slice(0, 100),
       output_preview: null,
       metadata: {
@@ -192,66 +341,47 @@ function buildFailedSteps(
   ];
 }
 
-function getSeedRuns(): SeedRun[] {
+async function buildSeedRuns(
+  sql: NeonQueryFunction<false, false>
+): Promise<SeedRun[]> {
   const now = Date.now();
 
-  return [
-    {
-      run_id: "run_seed_refund",
-      status: "success",
-      created_at: new Date(now - 1000 * 60 * 12),
-      steps: buildSuccessSteps(
-        "run_seed_refund",
-        "I was charged twice for my Pro subscription last month and need a refund. Invoice #INV-20481.",
-        ["refund_policy", "billing_faq"],
-        { refund_policy: 0.92, billing_faq: 0.71 }
-      ),
-    },
-    {
-      run_id: "run_seed_billing",
-      status: "success",
-      created_at: new Date(now - 1000 * 60 * 45),
-      steps: buildSuccessSteps(
-        "run_seed_billing",
-        "Where can I download my invoice for March? I need it for expense reporting.",
-        ["billing_faq"],
-        { billing_faq: 0.88 }
-      ),
-    },
-    {
-      run_id: "run_seed_login",
-      status: "success",
-      created_at: new Date(now - 1000 * 60 * 90),
-      steps: buildSuccessSteps(
-        "run_seed_login",
-        "I cannot sign in after enabling 2FA. My backup codes do not work.",
-        ["login_help"],
-        { login_help: 0.94 }
-      ),
-    },
-    {
-      run_id: "run_seed_subscription",
-      status: "success",
-      created_at: new Date(now - 1000 * 60 * 180),
-      steps: buildSuccessSteps(
-        "run_seed_subscription",
-        "Please cancel my Team plan at the end of the billing cycle. We are downgrading to Pro.",
-        ["subscription_terms", "billing_faq"],
-        { subscription_terms: 0.9, billing_faq: 0.55 }
-      ),
-    },
-    {
-      run_id: "run_seed_failed",
-      status: "failed",
-      created_at: new Date(now - 1000 * 60 * 240),
-      steps: buildFailedSteps(
-        "run_seed_failed",
-        "Your refund policy is unclear. I want money back today for a charge from six months ago.",
-        ["refund_policy"],
-        { refund_policy: 0.67 }
-      ),
-    },
-  ];
+  return Promise.all(
+    SEED_RUN_DEFS.map(async (def) => {
+      const created_at = seedCreatedAt(now, def.daysAgo, def.hoursAgo ?? 0);
+      const retrieval = await retrievePolicyDocuments(sql, def.input);
+      const retrievalEnrichment = pickRetrievalEnrichment(
+        retrieval,
+        def.retrieved_docs
+      );
+
+      const steps =
+        def.status === "success"
+          ? buildSuccessSteps(
+              def.run_id,
+              def.input,
+              def.retrieved_docs,
+              def.retrieval_scores,
+              def.durations as SuccessDurations,
+              retrievalEnrichment
+            )
+          : buildFailedSteps(
+              def.run_id,
+              def.input,
+              def.retrieved_docs,
+              def.retrieval_scores,
+              def.durations as FailedDurations,
+              retrievalEnrichment
+            );
+
+      return {
+        run_id: def.run_id,
+        status: def.status,
+        created_at,
+        steps,
+      };
+    })
+  );
 }
 
 export async function seedDatabase(sql: NeonQueryFunction<false, false>) {
@@ -269,7 +399,7 @@ export async function seedDatabase(sql: NeonQueryFunction<false, false>) {
     `;
   }
 
-  const runs = getSeedRuns();
+  const runs = await buildSeedRuns(sql);
 
   for (const run of runs) {
     const total_duration_ms = run.steps.reduce((sum, s) => sum + s.duration_ms, 0);
@@ -282,7 +412,8 @@ export async function seedDatabase(sql: NeonQueryFunction<false, false>) {
         total_duration_ms,
         step_count,
         created_at,
-        mode
+        mode,
+        client_ip
       )
       VALUES (
         ${run.run_id},
@@ -291,7 +422,8 @@ export async function seedDatabase(sql: NeonQueryFunction<false, false>) {
         ${total_duration_ms},
         ${run.steps.length},
         ${run.created_at.toISOString()},
-        ${"demo"}
+        ${"demo"},
+        ${null}
       )
     `;
 

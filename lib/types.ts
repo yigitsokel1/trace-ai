@@ -20,11 +20,36 @@ export type WorkflowRunResponse = {
   status: Exclude<RunStatus, "running">;
   total_duration_ms: number;
   step_count: number;
+  mode: RunMode;
 };
+
+export type WorkflowProgressEvent =
+  | {
+      type: "step_start";
+      step_order: number;
+      step_name: StepName;
+    }
+  | {
+      type: "step_complete";
+      step_order: number;
+      step_name: StepName;
+      status: Exclude<RunStatus, "running">;
+      duration_ms: number;
+    }
+  | {
+      type: "run_complete";
+      run: WorkflowRunResponse;
+    }
+  | {
+      type: "error";
+      message: string;
+    };
 
 export type RetrievalResult = {
   retrieved_docs: string[];
   retrieval_scores: Record<string, number>;
+  matched_keywords?: Record<string, string[]>;
+  snippets?: Record<string, string>;
 };
 
 export type PolicyDocument = {
@@ -63,6 +88,8 @@ export type RunDetail = {
 export type StepMetadata = {
   retrieved_docs?: string[];
   retrieval_scores?: Record<string, number>;
+  matched_keywords?: Record<string, string[]>;
+  snippets?: Record<string, string>;
   model_info?: { model: string; provider: string };
   token_estimate?: { input: number; output: number };
   validation_checks?: string[];

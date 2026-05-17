@@ -10,7 +10,47 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { formatLatency } from "@/lib/format";
-import type { WorkflowStep } from "@/lib/types";
+import type { StepMetadata, WorkflowStep } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+type AiGenerationMode = "live" | "demo" | "quota_fallback";
+
+function resolveAiGenerationMode(meta: StepMetadata): AiGenerationMode | null {
+  if (meta.validation_checks?.includes("gemini_quota_fallback")) {
+    return "quota_fallback";
+  }
+  if (meta.model_info?.provider === "google") {
+    return "live";
+  }
+  if (
+    meta.model_info?.model === "demo-engine-v1" ||
+    meta.model_info?.provider === "deterministic"
+  ) {
+    return "demo";
+  }
+  return null;
+}
+
+const AI_GENERATION_MODE_LABEL: Record<AiGenerationMode, string> = {
+  live: "Live AI",
+  demo: "Demo engine",
+  quota_fallback: "Quota fallback",
+};
+
+function AiGenerationModeBadge({ mode }: { mode: AiGenerationMode }) {
+  return (
+    <Badge
+      variant={mode === "demo" ? "secondary" : "outline"}
+      className={cn(
+        "w-fit",
+        mode === "quota_fallback" &&
+          "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-400"
+      )}
+    >
+      {AI_GENERATION_MODE_LABEL[mode]}
+    </Badge>
+  );
+}
 
 type StepDetailSheetProps = {
   step: WorkflowStep | null;
@@ -26,7 +66,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-2">
+    <section className="space-y-2.5">
       <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
@@ -58,10 +98,24 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
   const meta = step.metadata;
   const retrievedDocs = meta.retrieved_docs ?? [];
   const retrievalScores = meta.retrieval_scores ?? {};
-  const hasRetrieval = retrievedDocs.length > 0 || Object.keys(retrievalScores).length > 0;
+  const matchedKeywords = meta.matched_keywords ?? {};
+  const snippets = meta.snippets ?? {};
+  const retrievalDocIds =
+    retrievedDocs.length > 0
+      ? retrievedDocs
+      : Object.keys(retrievalScores);
+  const hasRetrieval = retrievalDocIds.length > 0;
   const hasModel = meta.model_info != null;
   const hasTokens = meta.token_estimate != null;
-  const hasValidation = (meta.validation_checks?.length ?? 0) > 0;
+  const isAiDraftStep = step.step_name === "AI Draft Generation";
+  const aiGenerationMode = isAiDraftStep ? resolveAiGenerationMode(meta) : null;
+  const showAiGeneration =
+    isAiDraftStep && (hasModel || hasTokens || aiGenerationMode != null);
+  const validationChecks =
+    meta.validation_checks?.filter(
+      (c) => c !== "gemini_quota_fallback" && c !== "rate_limit_fallback"
+    ) ?? [];
+  const hasValidation = validationChecks.length > 0;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -73,7 +127,7 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 px-4 pb-6">
+        <div className="flex flex-col gap-5 px-6 pb-8 pt-1">
           <Section title="Overview">
             <div className="flex flex-wrap items-center gap-2">
               <RunStatusBadge status={step.status} />
@@ -101,35 +155,61 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
 
           {hasRetrieval ? (
             <Section title="Retrieved documents">
-              {retrievedDocs.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {retrievedDocs.map((docId) => (
-                    <Badge key={docId} variant="secondary" className="font-mono text-xs">
-                      {docId}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {Object.keys(retrievalScores).length > 0 ? (
-                <ul className="mt-2 space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm">
-                  {Object.entries(retrievalScores).map(([docId, score]) => (
-                    <li
+              <div className="space-y-3">
+                {retrievalDocIds.map((docId) => {
+                  const score = retrievalScores[docId];
+                  const keywords = matchedKeywords[docId] ?? [];
+                  const snippet = snippets[docId];
+
+                  return (
+                    <article
                       key={docId}
-                      className="flex justify-between gap-4 font-mono text-xs"
+                      className="space-y-2 rounded-md border border-border bg-muted/20 p-3"
                     >
-                      <span>{docId}</span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {score.toFixed(2)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-mono text-xs font-medium">{docId}</span>
+                        {score != null ? (
+                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                            {score.toFixed(2)}
+                          </span>
+                        ) : null}
+                      </div>
+                      {keywords.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {keywords.map((keyword) => (
+                            <Badge
+                              key={`${docId}-${keyword}`}
+                              variant="secondary"
+                              className="font-mono text-[10px]"
+                            >
+                              {keyword}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+                      {snippet ? (
+                        <p className="text-sm leading-relaxed text-muted-foreground">
+                          {snippet}
+                        </p>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
             </Section>
           ) : null}
 
-          {hasModel || hasTokens ? (
-            <Section title="Model">
+          {showAiGeneration ? (
+            <Section title="AI Generation">
+              {aiGenerationMode ? (
+                <AiGenerationModeBadge mode={aiGenerationMode} />
+              ) : null}
+              <div className="flex items-baseline justify-between gap-4 text-sm">
+                <span className="text-muted-foreground">Latency</span>
+                <span className="font-mono tabular-nums">
+                  {formatLatency(step.duration_ms)}
+                </span>
+              </div>
               {hasModel ? (
                 <p className="text-sm">
                   {meta.model_info!.model}
@@ -140,7 +220,7 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
                 </p>
               ) : null}
               {hasTokens ? (
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Tokens — in: {meta.token_estimate!.input}, out:{" "}
                   {meta.token_estimate!.output}
                 </p>
@@ -151,7 +231,7 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
           {hasValidation ? (
             <Section title="Validation checks">
               <ul className="list-inside list-disc space-y-1 text-sm">
-                {meta.validation_checks!.map((check) => (
+                {validationChecks.map((check) => (
                   <li key={check} className="font-mono text-xs">
                     {check}
                   </li>

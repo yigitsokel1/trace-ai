@@ -9,8 +9,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { sql } from "@/lib/db";
+import { isGeminiLiveEnabled } from "@/lib/gemini-draft";
 import { getDashboardData } from "@/lib/runs";
 import type { DashboardData } from "@/lib/types";
+
+const DASHBOARD_TAGLINE =
+  "TraceAI helps inspect AI workflow runs step by step—latency, policy retrieval, and draft generation in one trace.";
 
 type LoadResult =
   | { status: "no_database" }
@@ -31,6 +35,7 @@ async function loadDashboard(): Promise<LoadResult> {
 }
 
 export default async function DashboardPage() {
+  const engineMode = isGeminiLiveEnabled() ? "live" : "demo";
   const result = await loadDashboard();
 
   if (result.status === "no_database") {
@@ -38,7 +43,8 @@ export default async function DashboardPage() {
       <>
         <DashboardHeader
           title="Dashboard"
-          description="Inspect workflow runs, latency, and step-level traces."
+          description={DASHBOARD_TAGLINE}
+          engineMode={engineMode}
         />
         <DatabaseEmptyState />
       </>
@@ -50,7 +56,8 @@ export default async function DashboardPage() {
       <>
         <DashboardHeader
           title="Dashboard"
-          description="Inspect workflow runs, latency, and step-level traces."
+          description={DASHBOARD_TAGLINE}
+          engineMode={engineMode}
         />
         <ErrorState />
       </>
@@ -63,7 +70,8 @@ export default async function DashboardPage() {
     <>
       <DashboardHeader
         title="Dashboard"
-        description="Inspect workflow runs, latency, and step-level traces."
+        description={DASHBOARD_TAGLINE}
+        engineMode={engineMode}
       />
       <RunsStats stats={data.stats} />
       {data.runs.length > 0 ? <RunsList runs={data.runs} /> : <NoRunsState />}

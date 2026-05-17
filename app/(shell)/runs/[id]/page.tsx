@@ -7,6 +7,7 @@ import { RunStatusBadge } from "@/components/run-status-badge";
 import { TraceRunView } from "@/components/trace-run-view";
 import { Badge } from "@/components/ui/badge";
 import { sql } from "@/lib/db";
+import { cn } from "@/lib/utils";
 import { formatLatency, formatRelativeTime, shortRunId } from "@/lib/format";
 import { getRunWithSteps } from "@/lib/runs";
 import type { RunDetail } from "@/lib/types";
@@ -48,6 +49,7 @@ export default async function RunDetailPage({ params }: PageProps) {
         <DashboardHeader
           title={shortRunId(run.run_id)}
           description={`${run.workflow_type} · ${formatRelativeTime(run.created_at)}`}
+          engineMode={null}
         />
 
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -55,7 +57,14 @@ export default async function RunDetailPage({ params }: PageProps) {
           <span className="tabular-nums">{formatLatency(run.total_duration_ms)}</span>
           <span className="text-border">·</span>
           <span>{run.step_count} steps</span>
-          <Badge variant="outline" className="capitalize">
+          <Badge
+            variant={run.mode === "live" ? "outline" : "secondary"}
+            className={cn(
+              "capitalize",
+              run.mode === "live" &&
+                "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-400"
+            )}
+          >
             {run.mode}
           </Badge>
         </div>
