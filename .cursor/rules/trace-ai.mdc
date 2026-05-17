@@ -1,0 +1,27 @@
+---
+name: trace-ai
+description: trace-ai proje kuralları
+---
+
+# Her oturumda sırayla oku
+1. docs/status.md
+2. docs/architecture.md
+3. docs/workflow.md
+
+Okumadan kod yazma.
+
+# Kesin kurallar
+- Gerçek vector search / embedding — asla sprint 1'de
+- Multi-workflow UI — mimari hazır olabilir ama UI'da yok
+- Auth sistemi — eklenmeyecek
+- Scope dışına çıkma, yeni fikirleri Backlog'a yaz
+- Oturum sonunda docs/status.md güncelle
+- Yeni servis/modül eklediysen docs/architecture.md güncelle
+
+# MVP Core (en kritik, önce bunlar)
+1. Workflow Trace Timeline
+2. Step Detail Inspection (sağ drawer)
+3. Workflow Run System
+
+# Data flow
+Demo Workflow (preset seç) → POST /api/workflows/run → 5-step pipeline → her step DB'ye yazılır → redirect /runs/[id] → Trace Timeline
