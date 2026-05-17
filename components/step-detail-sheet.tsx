@@ -75,6 +75,50 @@ function Section({
   );
 }
 
+type RetrievalScoreTone = "high" | "medium" | "low";
+
+function getRetrievalScoreTone(
+  score: number | undefined
+): RetrievalScoreTone {
+  if (score == null || score < 0.5) return "low";
+  if (score >= 0.75) return "high";
+  return "medium";
+}
+
+const RETRIEVAL_SCORE_DOT_CLASS: Record<RetrievalScoreTone, string> = {
+  high: "bg-emerald-500",
+  medium: "bg-amber-500",
+  low: "bg-muted-foreground/40",
+};
+
+function RetrievalScoreIndicator({ score }: { score: number | undefined }) {
+  const tone = getRetrievalScoreTone(score);
+  const label =
+    score != null ? `Relevance score ${score.toFixed(2)}` : "No relevance score";
+
+  return (
+    <span className="flex shrink-0 items-center gap-1.5" title={label}>
+      <span
+        className={cn("size-2 rounded-full", RETRIEVAL_SCORE_DOT_CLASS[tone])}
+        aria-hidden
+      />
+      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+        {score != null ? score.toFixed(2) : "—"}
+      </span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
+function StatCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-mono text-sm tabular-nums">{value}</p>
+    </div>
+  );
+}
+
 function PreviewBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1">
@@ -168,11 +212,7 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
                     >
                       <div className="flex items-start justify-between gap-3">
                         <span className="font-mono text-xs font-medium">{docId}</span>
-                        {score != null ? (
-                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                            {score.toFixed(2)}
-                          </span>
-                        ) : null}
+                        <RetrievalScoreIndicator score={score} />
                       </div>
                       {keywords.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
@@ -204,27 +244,32 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
               {aiGenerationMode ? (
                 <AiGenerationModeBadge mode={aiGenerationMode} />
               ) : null}
-              <div className="flex items-baseline justify-between gap-4 text-sm">
-                <span className="text-muted-foreground">Latency</span>
-                <span className="font-mono tabular-nums">
-                  {formatLatency(step.duration_ms)}
-                </span>
+              <div className="grid grid-cols-2 gap-3">
+                <StatCell
+                  label="Latency"
+                  value={formatLatency(step.duration_ms)}
+                />
+                <StatCell
+                  label="Model"
+                  value={hasModel ? meta.model_info!.model : "—"}
+                />
+                <StatCell
+                  label="Input tokens"
+                  value={
+                    hasTokens
+                      ? String(meta.token_estimate!.input)
+                      : "—"
+                  }
+                />
+                <StatCell
+                  label="Output tokens"
+                  value={
+                    hasTokens
+                      ? String(meta.token_estimate!.output)
+                      : "—"
+                  }
+                />
               </div>
-              {hasModel ? (
-                <p className="text-sm">
-                  {meta.model_info!.model}
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {meta.model_info!.provider}
-                  </span>
-                </p>
-              ) : null}
-              {hasTokens ? (
-                <p className="text-sm text-muted-foreground">
-                  Tokens — in: {meta.token_estimate!.input}, out:{" "}
-                  {meta.token_estimate!.output}
-                </p>
-              ) : null}
             </Section>
           ) : null}
 

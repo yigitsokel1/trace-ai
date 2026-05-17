@@ -18,6 +18,7 @@ Recruiter linke tıklıyor, "Refund issue" preset'ini çalıştırıyor, trace t
 - Sprint 2 ✅
 - Sprint 3 ✅
 - Sprint 4 ✅
+- Sprint 5 ✅
 
 ## Sprint 1 Görevleri
 - [x] Next.js projesi kur: Neon bağlantısı, shadcn/ui setup, temel layout ve sidebar
@@ -51,6 +52,10 @@ Recruiter linke tıklıyor, "Refund issue" preset'ini çalıştırıyor, trace t
 - [x] AI Draft drawer: Live AI / Demo engine / Quota fallback badge, section adı "AI Generation", latency label
 - [x] Rate limit: IP-based, günlük 10 run, client_ip kolonunu workflow_runs'a ekle, limit aşılınca silent mock fallback
 - [x] UI polish: sheet spacing, mode badge (live vs demo), stats renk kodu, time axis edge case'leri
+
+## Sprint 5 Görevleri
+- [x] Trace Timeline UX: step numarası kolonu, bar yüksekliği h-2.5 + opacity track, failed row bg, step name font-semibold, time axis iyileştirme, selected step ring
+- [x] Step Detail Drawer: AI Generation 2×2 stats grid; retrieval card score dot (green/amber/muted)
 
 ## Backlog
 - Streaming/SSE: real-time step progress server'dan akışı. Mimari değişiklik gerektirir.
