@@ -1,13 +1,13 @@
 # TraceAI
 
-Observability dashboard for AI workflow runs — inspect each step, latency, policy retrieval, and draft generation in a single trace. Makes the "AI black box" visible for a support-reply pipeline demo.
+Observability dashboard for AI workflow runs — a generic trace model to inspect each step, latency, and metadata in one timeline. Makes the "AI black box" visible. Includes a **support-reply demo workflow** (policy retrieval + draft generation) to showcase the trace model.
 
 ## Demo flow
 
 1. Open **Demo Workflow** and pick a preset (e.g. **Refund issue**).
 2. Run the pipeline and watch step-by-step progress.
 3. Open **View Trace** on the run detail page.
-4. Click **Policy Retrieval** to see retrieved documents and scores.
+4. Click **Context Retrieval** to see retrieved documents and scores.
 5. Click **AI Draft Generation** to see latency, token estimates, and output preview.
 
 Production is deployed on Vercel with Neon; see [docs/status.md](docs/status.md) for launch checklist.
@@ -39,13 +39,14 @@ Open [http://localhost:3000](http://localhost:3000).
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | Neon PostgreSQL connection string |
 | `GEMINI_API_KEY` | No | Enables **live** mode for AI Draft Generation |
-| `GEMINI_MODEL` | No | Default `gemini-2.5-flash` if unset (see `.env.example`) |
+| `GEMINI_MODEL` | No | Primary model; default `gemini-2.5-flash` |
+| `GEMINI_MODEL_FALLBACK` | No | Tried on 503/quota; default `gemini-2.5-flash-lite` |
 
 ## Demo vs live mode
 
 - **Demo** (no `GEMINI_API_KEY`): deterministic engine for all steps; AI draft uses a built-in template.
 - **Live** (`GEMINI_API_KEY` set): AI Draft Generation calls Gemini Flash; run `mode` is stored as `live`.
-- If Gemini returns quota/rate-limit errors, the engine silently falls back to the demo draft (run still succeeds).
+- On 503/quota/etc., live mode tries `GEMINI_MODEL_FALLBACK` first, then the demo draft if all models fail.
 
 ## Scripts
 

@@ -14,10 +14,17 @@ import {
   formatGeminiErrorMessage,
   generateSupportDraft,
   isGeminiLiveEnabled,
-  isGeminiQuotaOrRateLimitError,
+  isGeminiRetryableError,
 } from "./gemini-draft";
 import { getPolicyContentsByIds } from "./policy-content";
 import { retrievePolicyDocuments } from "./retrieval";
+import { PIPELINE_STEP_NAMES } from "./pipeline-steps";
+import {
+  buildContextRetrievalStepMetadata,
+  buildGenerationAttempts,
+  buildInputValidationMetadata,
+  buildResponseValidationMetadata,
+} from "./workflow-step-metadata";
 import {
   insertRunRunning,
   insertStepRunning,
@@ -27,13 +34,7 @@ import {
 
 type Sql = NeonQueryFunction<false, false>;
 
-const STEP_PIPELINE: StepName[] = [
-  "Input Validation",
-  "Policy Retrieval",
-  "AI Draft Generation",
-  "Response Validation",
-  "Finalize Response",
-];
+const STEP_PIPELINE: StepName[] = PIPELINE_STEP_NAMES;
 
 type PipelineContext = {
   input: string;
@@ -159,12 +160,12 @@ async function executeStep(
         durationMs: randomBetween(80, 120),
         inputPreview: ctx.input.slice(0, 120),
         outputPreview: "Input valid — 1 issue category detected",
-        metadata: { validation_checks: ["length_ok", "category_detected"] },
+        metadata: buildInputValidationMetadata(ctx.input, ctx.preset),
         errorMessage: null,
         stopPipeline: false,
       };
     }
-    case "Policy Retrieval": {
+    case "Context Retrieval": {
       const retrieval = await retrievePolicyDocuments(sql, ctx.input, {
         preset: ctx.preset,
       });
@@ -175,12 +176,7 @@ async function executeStep(
         durationMs: randomBetween(120, 250),
         inputPreview: ctx.input.slice(0, 80),
         outputPreview: `Retrieved ${retrieval.retrieved_docs.length} documents`,
-        metadata: {
-          retrieved_docs: retrieval.retrieved_docs,
-          retrieval_scores: retrieval.retrieval_scores,
-          matched_keywords: retrieval.matched_keywords,
-          snippets: retrieval.snippets,
-        },
+        metadata: buildContextRetrievalStepMetadata(retrieval),
         errorMessage: null,
         stopPipeline: false,
       };
@@ -201,6 +197,9 @@ async function executeStep(
             preset: ctx.preset,
           });
           ctx.draft = result.draft;
+          const modelFallback = result.validation_checks?.includes(
+            "gemini_model_fallback"
+          );
           return {
             status: "success",
             durationMs: result.durationMs,
@@ -209,12 +208,31 @@ async function executeStep(
             metadata: {
               model_info: result.modelInfo,
               token_estimate: result.tokenEstimate,
+              ...(modelFallback
+                ? buildGenerationAttempts([
+                    {
+                      attempt: 1,
+                      outcome: "timeout",
+                      detail: "primary model",
+                    },
+                    {
+                      attempt: 2,
+                      outcome: "success",
+                      detail: result.modelInfo.model,
+                    },
+                  ])
+                : buildGenerationAttempts([
+                    { attempt: 1, outcome: "success" },
+                  ])),
+              ...(result.validation_checks?.length
+                ? { validation_checks: result.validation_checks }
+                : {}),
             },
             errorMessage: null,
             stopPipeline: false,
           };
         } catch (e) {
-          if (isGeminiQuotaOrRateLimitError(e)) {
+          if (isGeminiRetryableError(e)) {
             ctx.draft = buildDraft(ctx.input, ctx.preset, ctx.retrievedDocs);
             return {
               status: "success",
@@ -228,6 +246,18 @@ async function executeStep(
                 },
                 token_estimate: estimateTokens(ctx.input, ctx.draft),
                 validation_checks: ["gemini_quota_fallback"],
+                ...buildGenerationAttempts([
+                  {
+                    attempt: 1,
+                    outcome: "timeout",
+                    detail: "gemini_quota",
+                  },
+                  {
+                    attempt: 2,
+                    outcome: "fallback",
+                    detail: "demo-engine-v1",
+                  },
+                ]),
               },
               errorMessage: null,
               stopPipeline: false,
@@ -239,7 +269,12 @@ async function executeStep(
             durationMs: Date.now() - startedAt,
             inputPreview,
             outputPreview: null,
-            metadata: {},
+            metadata: {
+              ...buildGenerationAttempts([
+                { attempt: 1, outcome: "error", detail: "gemini_api" },
+              ]),
+              failure_severity: "critical",
+            },
             errorMessage: formatGeminiErrorMessage(e),
             stopPipeline: true,
           };
@@ -262,6 +297,7 @@ async function executeStep(
         metadata: {
           model_info: { model: "demo-engine-v1", provider: "deterministic" },
           token_estimate: estimateTokens(ctx.input, ctx.draft),
+          ...buildGenerationAttempts([{ attempt: 1, outcome: "success" }]),
           ...(ctx.rateLimited
             ? { validation_checks: ["rate_limit_fallback"] as string[] }
             : {}),
@@ -281,11 +317,7 @@ async function executeStep(
         durationMs: randomBetween(90, 130),
         inputPreview: ctx.draft.slice(0, 100),
         outputPreview: failed ? null : "Draft passed safety and tone checks",
-        metadata: {
-          validation_checks: failed
-            ? ["tone_ok", "policy_citation_missing"]
-            : ["tone_ok", "policy_cited", "no_pii_leak"],
-        },
+        metadata: buildResponseValidationMetadata(failed),
         errorMessage,
         stopPipeline: failed,
       };

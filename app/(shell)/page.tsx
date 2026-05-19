@@ -1,5 +1,6 @@
 import { DashboardHeader } from "@/components/dashboard-header";
 import { RunsList } from "@/components/runs-list";
+import { RunsObservability } from "@/components/runs-observability";
 import { RunsStats } from "@/components/runs-stats";
 import {
   Card,
@@ -14,7 +15,10 @@ import { getDashboardData } from "@/lib/runs";
 import type { DashboardData } from "@/lib/types";
 
 const DASHBOARD_TAGLINE =
-  "TraceAI helps inspect AI workflow runs step by step—latency, policy retrieval, and draft generation in one trace.";
+  "TraceAI exposes execution traces, retrieval context, validation failures, and step-level metadata for inspectable AI workflows.";
+
+const DASHBOARD_DEMO_CALLOUT =
+  "Example pipeline: support reply. The trace model works for any multi-step AI workflow.";
 
 type LoadResult =
   | { status: "no_database" }
@@ -73,7 +77,9 @@ export default async function DashboardPage() {
         description={DASHBOARD_TAGLINE}
         engineMode={engineMode}
       />
+      <p className="-mt-2 text-sm text-muted-foreground">{DASHBOARD_DEMO_CALLOUT}</p>
       <RunsStats stats={data.stats} />
+      <RunsObservability stats={data.stats} />
       {data.runs.length > 0 ? <RunsList runs={data.runs} /> : <NoRunsState />}
     </>
   );

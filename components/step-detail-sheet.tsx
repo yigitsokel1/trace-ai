@@ -119,6 +119,23 @@ function StatCell({ label, value }: { label: string; value: string }) {
   );
 }
 
+function CheckList({ items, emptyLabel }: { items: string[]; emptyLabel?: string }) {
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">{emptyLabel ?? "None"}</p>
+    );
+  }
+  return (
+    <ul className="list-inside list-disc space-y-1 text-sm">
+      {items.map((check) => (
+        <li key={check} className="font-mono text-xs">
+          {check}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function PreviewBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1">
@@ -140,7 +157,8 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
   }
 
   const meta = step.metadata;
-  const retrievedDocs = meta.retrieved_docs ?? [];
+  const retrievedDocs =
+    meta.retrieved_documents ?? meta.retrieved_docs ?? [];
   const retrievalScores = meta.retrieval_scores ?? {};
   const matchedKeywords = meta.matched_keywords ?? {};
   const snippets = meta.snippets ?? {};
@@ -157,9 +175,32 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
     isAiDraftStep && (hasModel || hasTokens || aiGenerationMode != null);
   const validationChecks =
     meta.validation_checks?.filter(
-      (c) => c !== "gemini_quota_fallback" && c !== "rate_limit_fallback"
+      (c) =>
+        c !== "gemini_quota_fallback" &&
+        c !== "gemini_model_fallback" &&
+        c !== "rate_limit_fallback"
     ) ?? [];
-  const hasValidation = validationChecks.length > 0;
+  const hasStructuredValidation = (meta.required_checks?.length ?? 0) > 0;
+  const hasValidation =
+    !hasStructuredValidation && validationChecks.length > 0;
+  const messageLength = meta.message_length;
+  const similarityScore =
+    meta.similarity_score ??
+    (meta as { top_score?: number }).top_score;
+  const matchedKeywordsFlat =
+    meta.matched_keywords_flat ?? Object.values(matchedKeywords).flat();
+  const hasInputSignals =
+    meta.detected_intent != null ||
+    messageLength != null ||
+    meta.normalized_input != null ||
+    (meta.risk_flags?.length ?? 0) > 0;
+  const hasRetrievalSignals =
+    meta.retrieval_strategy != null ||
+    similarityScore != null ||
+    meta.fallback_used != null ||
+    matchedKeywordsFlat.length > 0;
+  const hasGenerationAttempts =
+    (meta.generation_attempts?.length ?? 0) > 0;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -178,6 +219,11 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
               <span className="text-sm text-muted-foreground">
                 Order {step.step_order}
               </span>
+              {meta.failure_severity ? (
+                <Badge variant="outline" className="font-mono text-[10px] capitalize">
+                  {meta.failure_severity}
+                </Badge>
+              ) : null}
             </div>
           </Section>
 
@@ -195,6 +241,81 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
 
           {step.output_preview ? (
             <PreviewBlock label="Output preview" value={step.output_preview} />
+          ) : null}
+
+          {hasInputSignals ? (
+            <Section title="Input signals">
+              <div className="grid grid-cols-2 gap-3">
+                <StatCell
+                  label="detected_intent"
+                  value={meta.detected_intent ?? "—"}
+                />
+                <StatCell
+                  label="message_length"
+                  value={
+                    messageLength != null ? String(messageLength) : "—"
+                  }
+                />
+              </div>
+              {meta.normalized_input ? (
+                <PreviewBlock
+                  label="normalized_input"
+                  value={meta.normalized_input}
+                />
+              ) : null}
+              {(meta.risk_flags?.length ?? 0) > 0 ? (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {meta.risk_flags!.map((flag) => (
+                    <Badge
+                      key={flag}
+                      variant="outline"
+                      className="font-mono text-[10px]"
+                    >
+                      {flag}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+            </Section>
+          ) : null}
+
+          {hasRetrievalSignals ? (
+            <Section title="Context retrieval signals">
+              <div className="grid grid-cols-2 gap-3">
+                <StatCell
+                  label="retrieval_strategy"
+                  value={meta.retrieval_strategy ?? "—"}
+                />
+                <StatCell
+                  label="similarity_score"
+                  value={
+                    similarityScore != null
+                      ? similarityScore.toFixed(2)
+                      : "—"
+                  }
+                />
+                <StatCell
+                  label="fallback_used"
+                  value={meta.fallback_used ? "true" : "false"}
+                />
+                <StatCell
+                  label="matched_keywords"
+                  value={
+                    matchedKeywordsFlat.length > 0
+                      ? matchedKeywordsFlat.slice(0, 8).join(", ")
+                      : "—"
+                  }
+                />
+                <StatCell
+                  label="retrieved_documents"
+                  value={
+                    retrievedDocs.length > 0
+                      ? retrievedDocs.join(", ")
+                      : "—"
+                  }
+                />
+              </div>
+            </Section>
           ) : null}
 
           {hasRetrieval ? (
@@ -239,6 +360,22 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
             </Section>
           ) : null}
 
+          {hasGenerationAttempts ? (
+            <Section title="Generation attempts">
+              <ul className="space-y-2 text-sm">
+                {meta.generation_attempts!.map((attempt) => (
+                  <li
+                    key={attempt.attempt}
+                    className="rounded-md border border-border bg-muted/20 px-3 py-2 font-mono text-xs"
+                  >
+                    Attempt {attempt.attempt}: {attempt.outcome}
+                    {attempt.detail ? ` (${attempt.detail})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+
           {showAiGeneration ? (
             <Section title="AI Generation">
               {aiGenerationMode ? (
@@ -273,15 +410,46 @@ export function StepDetailSheet({ step, open, onOpenChange }: StepDetailSheetPro
             </Section>
           ) : null}
 
+          {hasStructuredValidation ? (
+            <Section title="Validation checks">
+              {meta.validation_policy ? (
+                <StatCell
+                  label="validation_policy"
+                  value={meta.validation_policy}
+                />
+              ) : null}
+              <div className="space-y-4">
+                <div>
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    required_checks
+                  </p>
+                  <CheckList items={meta.required_checks ?? []} />
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    passed_checks
+                  </p>
+                  <CheckList
+                    items={meta.passed_checks ?? []}
+                    emptyLabel="None"
+                  />
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    failed_checks
+                  </p>
+                  <CheckList
+                    items={meta.failed_checks ?? []}
+                    emptyLabel="None"
+                  />
+                </div>
+              </div>
+            </Section>
+          ) : null}
+
           {hasValidation ? (
             <Section title="Validation checks">
-              <ul className="list-inside list-disc space-y-1 text-sm">
-                {validationChecks.map((check) => (
-                  <li key={check} className="font-mono text-xs">
-                    {check}
-                  </li>
-                ))}
-              </ul>
+              <CheckList items={validationChecks} />
             </Section>
           ) : null}
         </div>

@@ -57,6 +57,13 @@ Recruiter linke tıklıyor, "Refund issue" preset'ini çalıştırıyor, trace t
 - [x] Trace Timeline UX: step numarası kolonu, bar yüksekliği h-2.5 + opacity track, failed row bg, step name font-semibold, time axis iyileştirme, selected step ring
 - [x] Step Detail Drawer: AI Generation 2×2 stats grid; retrieval card score dot (green/amber/muted)
 
+## Observability polish (post-Sprint 5)
+- [x] Generic product framing: dashboard/demo/README — support reply = demo scenario only
+- [x] Trace Summary panel on run detail (status, failed step, latency, tokens, docs, model, failure code + severity)
+- [x] Step rename: Policy Retrieval → Context Retrieval
+- [x] Richer metadata: message_length, normalized_input, similarity_score, retrieved_documents, validation_policy, generation_attempts
+- [x] Dashboard stats: Failed runs (N/M), Most common failure; workflow graph on run detail
+
 ## Backlog
 - Streaming/SSE: real-time step progress server'dan akışı. Mimari değişiklik gerektirir.
 - Comparison mode: iki run'ı yan yana inceleme. Karmaşık, sonraki aşama.

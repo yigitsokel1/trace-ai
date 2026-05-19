@@ -22,10 +22,20 @@ type RunRow = {
   mode: RunMode;
 };
 
-type StatsRow = {
+type BaseStatsRow = {
   total_runs: number;
   success_rate: number;
   avg_latency_ms: number;
+  failed_runs: number;
+};
+
+type SlowestStepRow = {
+  step_name: string;
+  avg_ms: number;
+};
+
+type CommonFailureRow = {
+  failure_code: string;
 };
 
 export function mapRunRow(row: RunRow): WorkflowRun {
@@ -41,21 +51,61 @@ export function mapRunRow(row: RunRow): WorkflowRun {
 }
 
 export async function getDashboardStats(sql: Sql): Promise<DashboardStats> {
-  const rows = await sql`
-    SELECT
-      COUNT(*)::int AS total_runs,
-      COALESCE(
-        COUNT(*) FILTER (WHERE status = 'success')::float / NULLIF(COUNT(*), 0),
-        0
-      ) AS success_rate,
-      COALESCE(AVG(total_duration_ms)::int, 0) AS avg_latency_ms
-    FROM workflow_runs
-  `;
-  const row = rows[0] as StatsRow;
+  const [baseRows, slowestRows, failureRows] = await Promise.all([
+    sql`
+      SELECT
+        COUNT(*)::int AS total_runs,
+        COALESCE(
+          COUNT(*) FILTER (WHERE status = 'success')::float / NULLIF(COUNT(*), 0),
+          0
+        ) AS success_rate,
+        COALESCE(AVG(total_duration_ms)::int, 0) AS avg_latency_ms,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_runs
+      FROM workflow_runs
+    `,
+    sql`
+      SELECT step_name, AVG(duration_ms)::int AS avg_ms
+      FROM workflow_steps
+      GROUP BY step_name
+      ORDER BY avg_ms DESC
+      LIMIT 1
+    `,
+    sql`
+      WITH failed_step_codes AS (
+        SELECT
+          CASE
+            WHEN jsonb_typeof(ws.metadata->'failed_checks') = 'array'
+              AND jsonb_array_length(ws.metadata->'failed_checks') > 0
+            THEN ws.metadata->'failed_checks'->>0
+            WHEN ws.metadata->'validation_checks' @> '["policy_citation_missing"]'::jsonb
+            THEN 'policy_citation_missing'
+            ELSE NULL
+          END AS failure_code
+        FROM workflow_steps ws
+        INNER JOIN workflow_runs wr ON wr.run_id = ws.run_id
+        WHERE ws.status = 'failed' AND wr.status = 'failed'
+      )
+      SELECT failure_code
+      FROM failed_step_codes
+      WHERE failure_code IS NOT NULL
+      GROUP BY failure_code
+      ORDER BY COUNT(*) DESC
+      LIMIT 1
+    `,
+  ]);
+
+  const base = baseRows[0] as BaseStatsRow;
+  const slowest = slowestRows[0] as SlowestStepRow | undefined;
+  const failure = failureRows[0] as CommonFailureRow | undefined;
+
   return {
-    total_runs: row.total_runs,
-    success_rate: Number(row.success_rate),
-    avg_latency_ms: row.avg_latency_ms,
+    total_runs: base.total_runs,
+    success_rate: Number(base.success_rate),
+    avg_latency_ms: base.avg_latency_ms,
+    failed_runs: base.failed_runs,
+    most_common_failure: failure?.failure_code ?? null,
+    slowest_step_name: slowest?.step_name ?? null,
+    slowest_step_avg_ms: slowest?.avg_ms ?? 0,
   };
 }
 

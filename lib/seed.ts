@@ -4,6 +4,12 @@ import type { NeonQueryFunction } from "@neondatabase/serverless";
 import { buildAiDraftInputPreview } from "./ai-draft-preview";
 import { pickRetrievalEnrichment, retrievePolicyDocuments } from "./retrieval";
 import type { RunStatus, StepMetadata } from "./types";
+import {
+  buildContextRetrievalStepMetadata,
+  buildGenerationAttempts,
+  buildInputValidationMetadata,
+  buildResponseValidationMetadata,
+} from "./workflow-step-metadata";
 
 const SEED_DOC_DEFS = [
   {
@@ -30,7 +36,7 @@ const SEED_DOC_DEFS = [
 
 type StepName =
   | "Input Validation"
-  | "Policy Retrieval"
+  | "Context Retrieval"
   | "AI Draft Generation"
   | "Response Validation"
   | "Finalize Response";
@@ -190,17 +196,18 @@ function step(
   };
 }
 
-function buildPolicyRetrievalMetadata(
+function buildContextRetrievalMetadata(
   retrieved_docs: string[],
   retrieval_scores: Record<string, number>,
   enrichment?: { matched_keywords?: Record<string, string[]>; snippets?: Record<string, string> }
 ): StepMetadata {
-  return {
+  return buildContextRetrievalStepMetadata({
     retrieved_docs,
     retrieval_scores,
     matched_keywords: enrichment?.matched_keywords,
     snippets: enrichment?.snippets,
-  };
+    fallback_used: false,
+  });
 }
 
 function buildSuccessSteps(
@@ -225,16 +232,16 @@ function buildSuccessSteps(
       duration_ms: d1,
       input_preview: inputPreview.slice(0, 120),
       output_preview: "Input valid — 1 issue category detected",
-      metadata: { validation_checks: ["length_ok", "category_detected"] },
+      metadata: buildInputValidationMetadata(inputPreview),
       error_message: null,
     }),
     step(runId, 2, {
-      step_name: "Policy Retrieval",
+      step_name: "Context Retrieval",
       status: "success",
       duration_ms: d2,
       input_preview: inputPreview.slice(0, 80),
       output_preview: `Retrieved ${retrieved_docs.length} documents`,
-      metadata: buildPolicyRetrievalMetadata(
+      metadata: buildContextRetrievalMetadata(
         retrieved_docs,
         retrieval_scores,
         retrievalEnrichment
@@ -250,6 +257,7 @@ function buildSuccessSteps(
       metadata: {
         model_info: { model: "demo-engine-v1", provider: "deterministic" },
         token_estimate: { input: 412, output: 186 },
+        ...buildGenerationAttempts([{ attempt: 1, outcome: "success" }]),
       },
       error_message: null,
     }),
@@ -259,9 +267,7 @@ function buildSuccessSteps(
       duration_ms: d4,
       input_preview: draft.slice(0, 100),
       output_preview: "Draft passed safety and tone checks",
-      metadata: {
-        validation_checks: ["tone_ok", "policy_cited", "no_pii_leak"],
-      },
+      metadata: buildResponseValidationMetadata(false),
       error_message: null,
     }),
     step(runId, 5, {
@@ -298,16 +304,16 @@ function buildFailedSteps(
       duration_ms: d1,
       input_preview: inputPreview.slice(0, 120),
       output_preview: "Input valid — refund category detected",
-      metadata: { validation_checks: ["length_ok", "category_detected"] },
+      metadata: buildInputValidationMetadata(inputPreview),
       error_message: null,
     }),
     step(runId, 2, {
-      step_name: "Policy Retrieval",
+      step_name: "Context Retrieval",
       status: "success",
       duration_ms: d2,
       input_preview: inputPreview.slice(0, 80),
       output_preview: "Retrieved 1 document",
-      metadata: buildPolicyRetrievalMetadata(
+      metadata: buildContextRetrievalMetadata(
         retrieved_docs,
         retrieval_scores,
         retrievalEnrichment
@@ -323,6 +329,7 @@ function buildFailedSteps(
       metadata: {
         model_info: { model: "demo-engine-v1", provider: "deterministic" },
         token_estimate: { input: 388, output: 142 },
+        ...buildGenerationAttempts([{ attempt: 1, outcome: "success" }]),
       },
       error_message: null,
     }),
@@ -332,9 +339,7 @@ function buildFailedSteps(
       duration_ms: d4,
       input_preview: draft.slice(0, 100),
       output_preview: null,
-      metadata: {
-        validation_checks: ["tone_ok", "policy_citation_missing"],
-      },
+      metadata: buildResponseValidationMetadata(true),
       error_message:
         "Draft missing required policy citation for billing disputes.",
     }),

@@ -3,7 +3,7 @@
 # trace-ai — AI Context
 
 ## Proje
-AI workflow execution'larını trace eden, step-by-step inspect edilebilen observability dashboard'u. Kullanıcı bir support workflow'u çalıştırır, her step loglanır, trace timeline'da incelenir. "AI black box" problemini görünür kılar.
+AI workflow execution'larını trace eden, step-by-step inspect edilebilen observability dashboard'u — generic trace model. Her step loglanır, trace timeline'da incelenir; "AI black box" problemini görünür kılar. Bundled demo: support-reply senaryosu (asıl ürün workflow tipinden bağımsız trace modelidir).
 
 ## Proje tipi
 short-project

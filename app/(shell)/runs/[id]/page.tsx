@@ -48,7 +48,7 @@ export default async function RunDetailPage({ params }: PageProps) {
 
         <DashboardHeader
           title={shortRunId(run.run_id)}
-          description={`${run.workflow_type} · ${formatRelativeTime(run.created_at)}`}
+          description={`Demo scenario · ${run.workflow_type} · ${formatRelativeTime(run.created_at)}`}
           engineMode={null}
         />
 
@@ -70,7 +70,11 @@ export default async function RunDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      <TraceRunView totalDurationMs={run.total_duration_ms} steps={steps} />
+      <TraceRunView
+        run={run}
+        totalDurationMs={run.total_duration_ms}
+        steps={steps}
+      />
     </>
   );
 }

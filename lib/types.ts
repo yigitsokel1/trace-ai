@@ -3,10 +3,18 @@ export type RunMode = "demo" | "live";
 
 export type StepName =
   | "Input Validation"
-  | "Policy Retrieval"
+  | "Context Retrieval"
   | "AI Draft Generation"
   | "Response Validation"
   | "Finalize Response";
+
+export type FailureSeverity = "warning" | "recoverable" | "critical";
+
+export type GenerationAttempt = {
+  attempt: number;
+  outcome: "success" | "timeout" | "error" | "fallback";
+  detail?: string;
+};
 
 export type WorkflowPreset = "refund" | "billing" | "login" | "subscription";
 
@@ -50,6 +58,7 @@ export type RetrievalResult = {
   retrieval_scores: Record<string, number>;
   matched_keywords?: Record<string, string[]>;
   snippets?: Record<string, string>;
+  fallback_used?: boolean;
 };
 
 export type PolicyDocument = {
@@ -73,6 +82,21 @@ export type DashboardStats = {
   total_runs: number;
   success_rate: number;
   avg_latency_ms: number;
+  failed_runs: number;
+  most_common_failure: string | null;
+  slowest_step_name: string | null;
+  slowest_step_avg_ms: number;
+};
+
+export type TraceSummary = {
+  status: Exclude<RunStatus, "running">;
+  failedStep: string | null;
+  totalLatencyMs: number;
+  totalTokens: number | null;
+  retrievedDocCount: number;
+  model: string | null;
+  failureReason: string | null;
+  failureSeverity: FailureSeverity | null;
 };
 
 export type DashboardData = {
@@ -93,6 +117,21 @@ export type StepMetadata = {
   model_info?: { model: string; provider: string };
   token_estimate?: { input: number; output: number };
   validation_checks?: string[];
+  detected_intent?: string;
+  message_length?: number;
+  normalized_input?: string;
+  risk_flags?: string[];
+  retrieval_strategy?: string;
+  similarity_score?: number;
+  retrieved_documents?: string[];
+  matched_keywords_flat?: string[];
+  fallback_used?: boolean;
+  validation_policy?: string;
+  failure_severity?: FailureSeverity;
+  generation_attempts?: GenerationAttempt[];
+  required_checks?: string[];
+  passed_checks?: string[];
+  failed_checks?: string[];
 };
 
 export type WorkflowStep = {

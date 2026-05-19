@@ -1,7 +1,7 @@
 # Mimari — trace-ai
 
 ## Ne yapıyor
-AI workflow execution'larını trace eden, step-by-step inspect edilebilen observability dashboard'u. Kullanıcı bir support workflow'u çalıştırır, her step loglanır, trace timeline'da incelenir. "AI black box" problemini görünür kılar.
+AI workflow execution'larını trace eden, step-by-step inspect edilebilen observability dashboard'u — **generic trace model** (workflow tipinden bağımsız). Her step loglanır, trace timeline'da incelenir; "AI black box" problemini görünür kılar. Sprint 1 demo senaryosu: support-reply pipeline (`workflow_type: support_reply`).
 
 ## Ne YAPMIYOR
 - Auth veya multi-user sistemi değil

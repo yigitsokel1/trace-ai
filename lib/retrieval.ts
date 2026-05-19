@@ -151,8 +151,10 @@ export async function retrievePolicyDocuments(
   }
 
   let ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  let fallback_used = false;
 
   if (ranked.length === 0) {
+    fallback_used = true;
     let bestId = docs[0]?.doc_id ?? "refund_policy";
     let bestScore = 0;
     const fallbackKeywords: string[] = [];
@@ -206,5 +208,6 @@ export async function retrievePolicyDocuments(
     matched_keywords:
       Object.keys(matched_keywords).length > 0 ? matched_keywords : undefined,
     snippets: Object.keys(snippets).length > 0 ? snippets : undefined,
+    fallback_used,
   };
 }

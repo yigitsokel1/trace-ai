@@ -1,12 +1,7 @@
-import type { StepName, WorkflowPreset } from "./types";
+import { PIPELINE_STEP_NAMES } from "./pipeline-steps";
+import type { WorkflowPreset } from "./types";
 
-export const PIPELINE_STEP_NAMES: StepName[] = [
-  "Input Validation",
-  "Policy Retrieval",
-  "AI Draft Generation",
-  "Response Validation",
-  "Finalize Response",
-];
+export { PIPELINE_STEP_NAMES };
 
 export type DemoPreset = {
   id: WorkflowPreset;
@@ -40,7 +35,3 @@ export const DEMO_PRESETS: DemoPreset[] = [
       "Please cancel my Team plan at the end of the billing cycle. We are downgrading to Pro.",
   },
 ];
-
-export function getPresetById(id: WorkflowPreset): DemoPreset | undefined {
-  return DEMO_PRESETS.find((p) => p.id === id);
-}

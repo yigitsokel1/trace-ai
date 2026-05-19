@@ -9,7 +9,7 @@ export default function DemoWorkflowPage() {
     <>
       <DashboardHeader
         title="Demo Workflow"
-        description="Run the support reply pipeline with preset inputs and inspect the trace."
+        description="Run a controlled AI workflow and inspect execution traces, retrieval context, validation checks, and model metadata."
         engineMode={engineMode}
       />
       <DemoWorkflowPanel />

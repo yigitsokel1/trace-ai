@@ -23,7 +23,7 @@ export function RunsList({ runs }: RunsListProps) {
       <CardHeader>
         <CardTitle>Workflow runs</CardTitle>
         <CardDescription>
-          Recent support_reply executions — select a run to inspect the trace.
+          Recent workflow runs — select a run to inspect the trace.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
@@ -43,8 +43,11 @@ export function RunsList({ runs }: RunsListProps) {
                     <p className="truncate font-mono text-sm font-medium">
                       {shortRunId(run.run_id)}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {run.workflow_type} · {formatRelativeTime(run.created_at)}
+                    <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <Badge variant="secondary" className="font-mono text-[10px] font-normal">
+                        demo: {run.workflow_type}
+                      </Badge>
+                      <span>{formatRelativeTime(run.created_at)}</span>
                     </p>
                   </div>
                 </div>

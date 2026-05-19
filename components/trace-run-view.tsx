@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 
 import { RunStatusIcon } from "@/components/run-status-badge";
 import { StepDetailSheet } from "@/components/step-detail-sheet";
+import { TraceSummaryPanel } from "@/components/trace-summary";
+import { WorkflowGraph } from "@/components/workflow-graph";
 import {
   Card,
   CardContent,
@@ -17,10 +19,12 @@ import {
   getTimeAxisTicks,
   segmentBarPercents,
 } from "@/lib/trace-timeline";
-import type { WorkflowStep } from "@/lib/types";
+import { buildTraceSummary } from "@/lib/trace-summary";
+import type { WorkflowRun, WorkflowStep } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type TraceRunViewProps = {
+  run: WorkflowRun;
   totalDurationMs: number;
   steps: WorkflowStep[];
 };
@@ -31,8 +35,13 @@ function tickAlignClass(index: number, count: number): string {
   return "-translate-x-1/2";
 }
 
-export function TraceRunView({ totalDurationMs, steps }: TraceRunViewProps) {
+export function TraceRunView({ run, totalDurationMs, steps }: TraceRunViewProps) {
   const [selectedStep, setSelectedStep] = useState<WorkflowStep | null>(null);
+
+  const summary = useMemo(
+    () => buildTraceSummary(steps, run),
+    [steps, run]
+  );
 
   const segments = useMemo(
     () => buildStepTimeline(steps),
@@ -53,12 +62,14 @@ export function TraceRunView({ totalDurationMs, steps }: TraceRunViewProps) {
     : axisTicks;
 
   return (
-    <>
+    <div className="space-y-4">
+      <TraceSummaryPanel summary={summary} />
+      <WorkflowGraph steps={steps} />
       <Card>
         <CardHeader>
           <CardTitle>Trace timeline</CardTitle>
           <CardDescription>
-            Click a step to inspect metadata, retrieved documents, and token usage.
+            Click a step to inspect metadata, retrieval context, validation checks, and token usage.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -174,6 +185,6 @@ export function TraceRunView({ totalDurationMs, steps }: TraceRunViewProps) {
           if (!open) setSelectedStep(null);
         }}
       />
-    </>
+    </div>
   );
 }
