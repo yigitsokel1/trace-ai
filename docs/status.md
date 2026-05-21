@@ -57,6 +57,12 @@ Recruiter linke tıklıyor, "Refund issue" preset'ini çalıştırıyor, trace t
 - [x] Trace Timeline UX: step numarası kolonu, bar yüksekliği h-2.5 + opacity track, failed row bg, step name font-semibold, time axis iyileştirme, selected step ring
 - [x] Step Detail Drawer: AI Generation 2×2 stats grid; retrieval card score dot (green/amber/muted)
 
+## Public README polish
+- [x] README: positioning (Why / What / Engineering notes), live demo link, Preview screenshots
+- [x] `docs/assets/` — dashboard, run detail, step drawer PNGs from production
+- [x] `.env.example` + `.gitignore` exception for public setup
+- [ ] GitHub About: description + topics (manual — `gh` not available in this environment)
+
 ## Observability polish (post-Sprint 5)
 - [x] Generic product framing: dashboard/demo/README — support reply = demo scenario only
 - [x] Trace Summary panel on run detail (status, failed step, latency, tokens, docs, model, failure code + severity)

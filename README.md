@@ -1,6 +1,38 @@
 # TraceAI
 
-Observability dashboard for AI workflow runs — a generic trace model to inspect each step, latency, and metadata in one timeline. Makes the "AI black box" visible. Includes a **support-reply demo workflow** (policy retrieval + draft generation) to showcase the trace model.
+Most AI applications hide their internal workflow behind a single response.
+
+TraceAI makes AI workflows inspectable by breaking each run into ordered execution steps with status, latency, metadata, input/output previews, retrieved context, and generation details.
+
+**Live demo:** https://trace-ai.osmanyigitsokel.com
+
+**Stack:** Next.js · TypeScript · Neon PostgreSQL · Tailwind · shadcn/ui · Gemini Flash optional
+
+## Preview
+
+![TraceAI dashboard](./docs/assets/traceai-dashboard.png)
+
+![TraceAI run detail](./docs/assets/traceai-run-detail.png)
+
+![TraceAI step detail](./docs/assets/traceai-step-drawer.png)
+
+## Why this exists
+
+AI applications are rarely a single prompt → response call.
+
+They often include input validation, retrieval, generation, validation, retries, fallback behavior, and metadata handling. Without visibility into those steps, debugging becomes guesswork.
+
+TraceAI explores how AI workflow execution can be represented as an inspectable trace.
+
+## What it shows
+
+- Workflow runs with status, duration, and mode
+- Ordered execution steps
+- Step-level latency and metadata
+- Retrieved policy documents and scores
+- AI generation preview and token estimates
+- Demo/live mode behavior
+- Fallback behavior when live generation fails
 
 ## Demo flow
 
@@ -10,11 +42,14 @@ Observability dashboard for AI workflow runs — a generic trace model to inspec
 4. Click **Context Retrieval** to see retrieved documents and scores.
 5. Click **AI Draft Generation** to see latency, token estimates, and output preview.
 
-Production is deployed on Vercel with Neon; see [docs/status.md](docs/status.md) for launch checklist.
+## Engineering notes
 
-## Stack
+- The project models AI execution as a workflow trace, not a single black-box API call.
+- Progress updates use newline-delimited JSON events for step-level progress (`step_start`, `step_complete`, `run_complete`).
+- This is intentionally different from LLM token streaming or full realtime distributed tracing.
+- The core scope is workflow visibility, not enterprise monitoring.
 
-Next.js (App Router) · TypeScript · Tailwind · shadcn/ui · Neon PostgreSQL · optional Gemini Flash for live AI draft mode
+For the full distinction, see [docs/architecture.md — Sequential progress vs streaming](docs/architecture.md#sequential-progress-vs-streaming).
 
 ## Requirements
 
@@ -26,7 +61,7 @@ Next.js (App Router) · TypeScript · Tailwind · shadcn/ui · Neon PostgreSQL �
 
 ```bash
 npm install
-cp .env.example .env   # fill in DATABASE_URL
+cp .env.example .env   # fill in DATABASE_URL (.env.local also works)
 npm run db:setup
 npm run dev
 ```
@@ -59,25 +94,22 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run db:seed` | Seed policy docs and sample runs |
 | `npm run db:setup` | `db:migrate` + `db:seed` |
 
-## Progress streaming (FAQ)
-
-The demo page calls `POST /api/workflows/run?stream=1` and reads **newline-delimited JSON** events (`step_start`, `step_complete`, `run_complete`). That gives a sequential step-by-step UI while the server runs the full pipeline.
-
-This is **not** LLM token streaming, Server-Sent Events (SSE), or a realtime observability ingest path. For the full distinction, see [docs/architecture.md — Sequential progress vs streaming](docs/architecture.md#sequential-progress-vs-streaming).
-
 ## Deploy
 
 Deploy to [Vercel](https://vercel.com) and set `DATABASE_URL` (and optionally `GEMINI_API_KEY`) in project environment variables. Run `npm run lint` and `npm run build` before shipping.
 
-## Project docs
-
-- [docs/status.md](docs/status.md) — sprint status and launch checklist
-- [docs/architecture.md](docs/architecture.md) — layers, data model, scope
-- [docs/workflow.md](docs/workflow.md) — session rules and engine conventions
-
 ## Out of scope
 
-- Authentication / multi-user
-- Vector search or embeddings
-- Multi-workflow UI or workflow builder
-- Enterprise monitoring or cost analytics
+TraceAI is intentionally not:
+
+- A multi-user SaaS product
+- A workflow builder
+- A vector search platform
+- A full distributed tracing system
+- An enterprise cost analytics dashboard
+
+## Project docs
+
+- [Architecture](docs/architecture.md)
+- [Status / launch checklist](docs/status.md)
+- [Workflow rules](docs/workflow.md)
